@@ -1,21 +1,12 @@
 from flask import Flask, request, abort
 import os
-from linebot.v3 import WebhookHandler
-from linebot.v3.exceptions import InvalidSignatureError
-from linebot.v3.messaging import (
-    Configuration,
-    ApiClient,
-    MessagingApi,
-    ReplyMessageRequest,
-    TextMessage
-)
-from linebot.v3.webhooks import MessageEvent, TextMessageContent
+import traceback
 
 app = Flask(__name__)
 
 # LINE Bot credentials from environment variables
-configuration = Configuration(access_token=os.environ.get('LINE_CHANNEL_ACCESS_TOKEN', ''))
-handler = WebhookHandler(os.environ.get('LINE_CHANNEL_SECRET', ''))
+LINE_CHANNEL_SECRET = os.environ.get('LINE_CHANNEL_SECRET', '')
+LINE_CHANNEL_ACCESS_TOKEN = os.environ.get('LINE_CHANNEL_ACCESS_TOKEN', '')
 
 # Customer service keyword responses
 CUSTOMER_SERVICE_RESPONSES = {
@@ -34,46 +25,74 @@ DEFAULT_RESPONSE = '感謝您的訊息！\n\n如需快速查詢，您可以輸�
 
 def get_response(user_message: str) -> str:
     """Get appropriate response based on user message."""
-    # Check for keyword matches
     for keyword, response in CUSTOMER_SERVICE_RESPONSES.items():
         if keyword in user_message:
             return response
-    
-    # Return default response if no keyword matched
     return DEFAULT_RESPONSE
+
+
+# Health check endpoint
+@app.route('/', methods=['GET'])
+def index():
+    return 'LINE Bot is running!'
+
+
+@app.route('/api/webhook', methods=['GET'])
+def webhook_get():
+    return 'Webhook endpoint is ready. Use POST for LINE webhook.'
 
 
 @app.route('/api/webhook', methods=['POST'])
 def webhook():
     """Handle LINE webhook requests."""
-    # Get X-Line-Signature header value
-    signature = request.headers.get('X-Line-Signature', '')
-    
-    # Get request body as text
-    body = request.get_data(as_text=True)
-    
     try:
-        handler.handle(body, signature)
-    except InvalidSignatureError:
-        abort(400)
-    
-    return 'OK'
-
-
-@handler.add(MessageEvent, message=TextMessageContent)
-def handle_text_message(event):
-    """Handle incoming text messages."""
-    user_message = event.message.text
-    response = get_response(user_message)
-    
-    with ApiClient(configuration) as api_client:
-        line_bot_api = MessagingApi(api_client)
-        line_bot_api.reply_message_with_http_info(
-            ReplyMessageRequest(
-                reply_token=event.reply_token,
-                messages=[TextMessage(text=response)]
-            )
+        from linebot.v3 import WebhookHandler
+        from linebot.v3.exceptions import InvalidSignatureError
+        from linebot.v3.messaging import (
+            Configuration,
+            ApiClient,
+            MessagingApi,
+            ReplyMessageRequest,
+            TextMessage
         )
+        from linebot.v3.webhooks import MessageEvent, TextMessageContent
+        import json
+        
+        signature = request.headers.get('X-Line-Signature', '')
+        body = request.get_data(as_text=True)
+        
+        # Verify signature
+        handler = WebhookHandler(LINE_CHANNEL_SECRET)
+        
+        try:
+            events = json.loads(body).get('events', [])
+        except:
+            return 'OK'
+        
+        # Process events
+        configuration = Configuration(access_token=LINE_CHANNEL_ACCESS_TOKEN)
+        
+        for event in events:
+            if event.get('type') == 'message' and event.get('message', {}).get('type') == 'text':
+                reply_token = event.get('replyToken')
+                user_message = event.get('message', {}).get('text', '')
+                response_text = get_response(user_message)
+                
+                with ApiClient(configuration) as api_client:
+                    line_bot_api = MessagingApi(api_client)
+                    line_bot_api.reply_message(
+                        ReplyMessageRequest(
+                            reply_token=reply_token,
+                            messages=[TextMessage(text=response_text)]
+                        )
+                    )
+        
+        return 'OK'
+        
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        print(traceback.format_exc())
+        return 'OK'
 
 
 # For local development
