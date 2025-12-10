@@ -66,8 +66,10 @@ def webhook_get():
 def webhook():
     """Handle LINE webhook requests."""
     try:
-        from linebot.v3 import WebhookHandler
-        from linebot.v3.exceptions import InvalidSignatureError
+        # Optional: we don't rely on SDK for signature verification here
+        import hmac
+        import hashlib
+        import base64
         from linebot.v3.messaging import (
             Configuration,
             ApiClient,
@@ -78,7 +80,24 @@ def webhook():
         import json
         
         signature = request.headers.get('X-Line-Signature', '')
-        body = request.get_data(as_text=True)
+        # use raw bytes for signature verification
+        body_bytes = request.get_data()
+        try:
+            body = body_bytes.decode('utf-8')
+        except Exception:
+            body = ''
+
+        # Verify signature if channel secret is set
+        if LINE_CHANNEL_SECRET:
+            try:
+                hash = hmac.new(LINE_CHANNEL_SECRET.encode('utf-8'), body_bytes, hashlib.sha256).digest()
+                computed_signature = base64.b64encode(hash).decode()
+                if not hmac.compare_digest(computed_signature, signature):
+                    print('Invalid LINE signature')
+                    abort(400)
+            except Exception as e:
+                print(f'Signature verification error: {e}')
+                abort(400)
         
         try:
             events = json.loads(body).get('events', [])
