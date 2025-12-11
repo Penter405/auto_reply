@@ -36,8 +36,8 @@ def ask_pinecone_rag(question: str) -> str:
         
         return resp["message"]["content"]
     except Exception as e:
-        print(f"Pinecone RAG Error: {str(e)}")
-        return f"抱歉，AI 回答時發生錯誤。請稍後再試。"
+        print(f"")
+        return f"Pinecone RAG Error: {str(e)}"
 
 
 def get_response(user_message: str) -> str:
